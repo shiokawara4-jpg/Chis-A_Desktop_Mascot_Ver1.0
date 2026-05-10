@@ -1,0 +1,18 @@
+export type MascotState =
+  | 'idleStanding'
+  | 'idleSitting'
+  | 'idleLying'
+  | 'dragging'
+  | 'petted'
+  | 'bored'
+  | 'edgePeeking'
+  | 'edgeHidden'
+  | 'costumeChanging'
+  | 'onTaskbar'
+  | 'onWindow'
+  | 'talking'
+  | 'readingText'
+  | 'singing'
+  | 'listeningMusic'
+  | 'watchingScreen'
+  | 'multiCharacterConversation';

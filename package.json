@@ -1,0 +1,28 @@
+{
+  "name": "mmd-desktop-mascot",
+  "version": "0.1.0",
+  "description": "Windows desktop mascot app scaffold built with Electron, React, Vite, TypeScript, and Three.js.",
+  "private": true,
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "npm run build:main && concurrently -k -n renderer,electron -c blue,green \"vite src/renderer --host 127.0.0.1 --port 5173 --strictPort\" \"wait-on tcp:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build": "tsc --noEmit && npm run build:main && vite build src/renderer --base ./ --outDir ../../dist/renderer --emptyOutDir",
+    "build:main": "tsc -p tsconfig.main.json"
+  },
+  "dependencies": {
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "three": "^0.160.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "@types/react": "^18.2.48",
+    "@types/react-dom": "^18.2.18",
+    "concurrently": "^8.2.2",
+    "cross-env": "^7.0.3",
+    "electron": "^28.2.0",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.12",
+    "wait-on": "^7.2.0"
+  }
+}
