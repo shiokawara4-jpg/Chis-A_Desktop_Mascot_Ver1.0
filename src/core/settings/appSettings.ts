@@ -11,6 +11,7 @@ export type CostumeChangeSettings = {
 export type AppSettings = {
   language: 'ja' | 'en';
   alwaysOnTop: boolean;
+  transparentBackground: boolean;
   launchAtStartup: boolean;
   clickThroughMode: 'window' | 'characterOnlyFuture';
   physicsEnabled: boolean;
@@ -28,6 +29,7 @@ export type AppSettings = {
 export const defaultAppSettings: AppSettings = {
   language: 'ja',
   alwaysOnTop: false,
+  transparentBackground: true,
   launchAtStartup: false,
   clickThroughMode: 'window',
   physicsEnabled: true,

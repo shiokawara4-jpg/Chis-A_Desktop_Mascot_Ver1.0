@@ -1,4 +1,4 @@
-export type { DesktopMascotApi } from './app/desktopMascotApi';
+export type { DesktopMascotApi, DesktopMascotStorageApi } from './app/desktopMascotApi';
 export type { AppInfo } from './app/appInfo';
 export type {
   CharacterInstance,
@@ -22,4 +22,11 @@ export type { ScreenObservationAdapter, ScreenObservationResult } from './screen
 export type { TextReadingAdapter, TextReadingResult } from './reading/textReadingAdapter';
 export type { AppSettings, CostumeChangeSettings } from './settings/appSettings';
 export { defaultAppSettings } from './settings/appSettings';
-export type { StorageAdapter, StorageKey } from './storage/storageAdapter';
+export type { StorageAdapter, StorageDataMap, StorageKey } from './storage/storageAdapter';
+export { storageKeys } from './storage/storageAdapter';
+export {
+  defaultCalendarRules,
+  defaultCharacterInstances,
+  defaultMotions,
+  defaultStorageData
+} from './storage/defaultStorageData';

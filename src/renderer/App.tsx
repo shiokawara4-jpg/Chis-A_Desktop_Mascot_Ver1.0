@@ -1,25 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
-import type { AppInfo, CharacterInstance } from '../core';
+import { useEffect, useState } from 'react';
+import { defaultAppSettings, defaultCharacterInstances } from '../core';
+import type { AppInfo, AppSettings, CharacterInstance } from '../core';
 import { MascotStage } from './components/MascotStage';
 
 type ConnectionState =
   | { status: 'checking'; label: string }
   | { status: 'ready'; label: string; appInfo: AppInfo }
   | { status: 'error'; label: string };
-
-const initialCharacterInstances: CharacterInstance[] = [
-  {
-    instanceId: 'main-character',
-    characterId: 'placeholder-character',
-    currentCostumeId: 'default',
-    position: { x: 160, y: 260 },
-    scale: 1,
-    state: 'idleStanding',
-    isVisible: true,
-    zIndex: 1,
-    performanceProfile: 'medium'
-  }
-];
 
 const getAppInfoSafely = async (): Promise<AppInfo> => {
   if (!window.desktopMascot) {
@@ -29,13 +16,29 @@ const getAppInfoSafely = async (): Promise<AppInfo> => {
   return window.desktopMascot.getAppInfo();
 };
 
+const getCharacterInstancesSafely = async (): Promise<CharacterInstance[]> => {
+  if (!window.desktopMascot) {
+    throw new Error('Desktop mascot preload API is not available.');
+  }
+
+  return window.desktopMascot.storage.getCharacters();
+};
+
+const getAppSettingsSafely = async (): Promise<AppSettings> => {
+  if (!window.desktopMascot) {
+    throw new Error('Desktop mascot preload API is not available.');
+  }
+
+  return window.desktopMascot.storage.getSettings();
+};
+
 export const App = (): JSX.Element => {
   const [connection, setConnection] = useState<ConnectionState>({
     status: 'checking',
-    label: 'Electron APIを確認中'
+    label: 'Electron API確認中'
   });
-
-  const characterInstances = useMemo<CharacterInstance[]>(() => initialCharacterInstances, []);
+  const [appSettings, setAppSettings] = useState<AppSettings>(() => defaultAppSettings);
+  const [characterInstances, setCharacterInstances] = useState<CharacterInstance[]>(() => defaultCharacterInstances);
 
   useEffect(() => {
     let isMounted = true;
@@ -61,7 +64,7 @@ export const App = (): JSX.Element => {
 
         setConnection({
           status: 'error',
-          label: 'Electron APIの確認に失敗'
+          label: 'Electron API確認失敗'
         });
       });
 
@@ -70,8 +73,40 @@ export const App = (): JSX.Element => {
     };
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    getAppSettingsSafely()
+      .then((settings) => {
+        if (!isMounted) {
+          return;
+        }
+
+        setAppSettings(settings);
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to read app settings.', error);
+      });
+
+    getCharacterInstancesSafely()
+      .then((storedCharacters) => {
+        if (!isMounted || storedCharacters.length === 0) {
+          return;
+        }
+
+        setCharacterInstances(storedCharacters);
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to read stored characters.', error);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${appSettings.transparentBackground ? 'app-shell--transparent' : 'app-shell--opaque'}`}>
       <section className="workspace">
         <header className="top-bar">
           <div>
