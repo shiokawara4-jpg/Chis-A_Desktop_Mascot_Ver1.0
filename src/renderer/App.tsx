@@ -21,7 +21,8 @@ const getCharacterInstancesSafely = async (): Promise<CharacterInstance[]> => {
     throw new Error('Desktop mascot preload API is not available.');
   }
 
-  return window.desktopMascot.storage.getCharacters();
+  const characterData = await window.desktopMascot.storage.getCharacters();
+  return characterData.instances;
 };
 
 const getAppSettingsSafely = async (): Promise<AppSettings> => {
@@ -117,14 +118,19 @@ export const App = (): JSX.Element => {
         </header>
 
         <div className="content-grid">
-          <MascotStage characters={characterInstances} />
+          <MascotStage
+            characters={characterInstances}
+            maxFps={appSettings.maxFps}
+            renderScale={appSettings.renderScale}
+            transparentBackground={appSettings.transparentBackground}
+          />
 
           <aside className="inspector-panel" aria-label="Project status">
             <h2>Project Core</h2>
             <dl className="info-list">
               <div>
                 <dt>Renderer</dt>
-                <dd>React + Vite</dd>
+                <dd>Three.js preview</dd>
               </div>
               <div>
                 <dt>Characters</dt>

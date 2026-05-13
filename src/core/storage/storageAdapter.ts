@@ -1,6 +1,6 @@
 import type { AppSettings } from '../settings/appSettings';
 import type { CalendarReactionRule } from '../calendar/calendarTypes';
-import type { CharacterInstanceCollection } from '../character/characterTypes';
+import type { CharacterStorageData } from '../character/characterTypes';
 import type { MotionProfile } from '../motion/motionTypes';
 
 export const storageKeys = ['settings', 'characters', 'motions', 'calendarRules'] as const;
@@ -9,7 +9,7 @@ export type StorageKey = (typeof storageKeys)[number];
 
 export type StorageDataMap = {
   settings: AppSettings;
-  characters: CharacterInstanceCollection;
+  characters: CharacterStorageData;
   motions: MotionProfile[];
   calendarRules: CalendarReactionRule[];
 };

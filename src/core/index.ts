@@ -4,15 +4,18 @@ export type {
   CharacterInstance,
   CharacterInstanceCollection,
   CharacterProfile,
+  CharacterStorageData,
   CostumeChangeAnimation,
   CostumeProfile,
+  ModelFormat,
   ModelProfile,
   PerformanceProfile,
   ScreenPosition
 } from './character/characterTypes';
 export type { MascotState } from './mascot/mascotState';
 export type { CalendarReactionRule, Season, TimeRangeKey, Weekday } from './calendar/calendarTypes';
-export type { MotionProfile } from './motion/motionTypes';
+export type { MotionFormat, MotionProfile } from './motion/motionTypes';
+export type { ModelRendererAdapter, LookAtTarget } from './renderer/modelRendererTypes';
 export type { AIAdapter } from './ai/aiAdapter';
 export type { MascotAIRequest, MascotAIResponse } from './ai/aiTypes';
 export type { SpeechBubbleAction, SpeechBubbleActionType, SpeechBubbleContent } from './speech/speechTypes';
@@ -26,7 +29,9 @@ export type { StorageAdapter, StorageDataMap, StorageKey } from './storage/stora
 export { storageKeys } from './storage/storageAdapter';
 export {
   defaultCalendarRules,
+  defaultCharacterData,
   defaultCharacterInstances,
+  defaultCharacterProfiles,
   defaultMotions,
   defaultStorageData
 } from './storage/defaultStorageData';

@@ -1,6 +1,6 @@
 import { app, ipcMain } from 'electron';
 import type { AppInfo } from '../../core/app/appInfo';
-import type { AppSettings, CalendarReactionRule, CharacterInstanceCollection, MotionProfile } from '../../core';
+import type { AppSettings, CalendarReactionRule, CharacterStorageData, MotionProfile } from '../../core';
 import type { AppStorage } from '../../core/storage/appStorage';
 
 type IpcHandlerOptions = {
@@ -21,7 +21,7 @@ export const registerIpcHandlers = (storage: AppStorage, options: IpcHandlerOpti
     options.onSettingsSaved?.(await storage.getSettings());
   });
   ipcMain.handle('storage:get-characters', () => storage.getCharacters());
-  ipcMain.handle('storage:save-characters', (_event, characters: CharacterInstanceCollection) =>
+  ipcMain.handle('storage:save-characters', (_event, characters: CharacterStorageData) =>
     storage.saveCharacters(characters)
   );
   ipcMain.handle('storage:get-motions', () => storage.getMotions());

@@ -11,10 +11,13 @@ export type PerformanceProfile = 'high' | 'medium' | 'low';
 
 export type CostumeChangeAnimation = 'screenEdge' | 'lightTransform' | 'instant' | 'random';
 
+export type ModelFormat = 'pmx' | 'vrm';
+
 export type ModelProfile = {
   modelId: string;
   displayName: string;
-  pmxPath: string;
+  modelFormat: ModelFormat;
+  modelPath: string;
   textureRootPath?: string;
   description?: string;
 };
@@ -63,3 +66,8 @@ export type CharacterInstance = {
 };
 
 export type CharacterInstanceCollection = CharacterInstance[];
+
+export type CharacterStorageData = {
+  profiles: CharacterProfile[];
+  instances: CharacterInstanceCollection;
+};
