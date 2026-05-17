@@ -4,6 +4,16 @@ import type { CharacterStorageData } from '../character/characterTypes';
 import type { MotionProfile } from '../motion/motionTypes';
 import type { AppSettings } from '../settings/appSettings';
 
+export type RendererDiagnosticLevel = 'warning' | 'error';
+
+export type RendererDiagnosticEntry = {
+  level: RendererDiagnosticLevel;
+  source: string;
+  message: string;
+  details?: unknown;
+  occurredAt?: string;
+};
+
 export type DesktopMascotStorageApi = {
   getSettings: () => Promise<AppSettings>;
   saveSettings: (settings: AppSettings) => Promise<void>;
@@ -15,7 +25,12 @@ export type DesktopMascotStorageApi = {
   saveCalendarRules: (calendarRules: CalendarReactionRule[]) => Promise<void>;
 };
 
+export type DesktopMascotDiagnosticsApi = {
+  logRendererError: (entry: RendererDiagnosticEntry) => Promise<void>;
+};
+
 export type DesktopMascotApi = {
   getAppInfo: () => Promise<AppInfo>;
   storage: DesktopMascotStorageApi;
+  diagnostics: DesktopMascotDiagnosticsApi;
 };

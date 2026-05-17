@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { defaultAppSettings, defaultCharacterInstances } from '../core';
-import type { AppInfo, AppSettings, CharacterInstance } from '../core';
+import { useEffect, useState, type ChangeEvent } from 'react';
+import { defaultAppSettings, defaultCharacterData } from '../core';
+import type { AppInfo, AppSettings, CharacterStorageData } from '../core';
 import { MascotStage } from './components/MascotStage';
 
 type ConnectionState =
@@ -16,13 +16,12 @@ const getAppInfoSafely = async (): Promise<AppInfo> => {
   return window.desktopMascot.getAppInfo();
 };
 
-const getCharacterInstancesSafely = async (): Promise<CharacterInstance[]> => {
+const getCharacterDataSafely = async (): Promise<CharacterStorageData> => {
   if (!window.desktopMascot) {
     throw new Error('Desktop mascot preload API is not available.');
   }
 
-  const characterData = await window.desktopMascot.storage.getCharacters();
-  return characterData.instances;
+  return window.desktopMascot.storage.getCharacters();
 };
 
 const getAppSettingsSafely = async (): Promise<AppSettings> => {
@@ -33,13 +32,23 @@ const getAppSettingsSafely = async (): Promise<AppSettings> => {
   return window.desktopMascot.storage.getSettings();
 };
 
+const saveAppSettingsSafely = async (settings: AppSettings): Promise<void> => {
+  if (!window.desktopMascot) {
+    throw new Error('Desktop mascot preload API is not available.');
+  }
+
+  await window.desktopMascot.storage.saveSettings(settings);
+};
+
 export const App = (): JSX.Element => {
   const [connection, setConnection] = useState<ConnectionState>({
     status: 'checking',
     label: 'Electron API確認中'
   });
   const [appSettings, setAppSettings] = useState<AppSettings>(() => defaultAppSettings);
-  const [characterInstances, setCharacterInstances] = useState<CharacterInstance[]>(() => defaultCharacterInstances);
+  const [characterData, setCharacterData] = useState<CharacterStorageData>(() => defaultCharacterData);
+  const [settingsSaveError, setSettingsSaveError] = useState<string | null>(null);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -89,13 +98,13 @@ export const App = (): JSX.Element => {
         console.error('Failed to read app settings.', error);
       });
 
-    getCharacterInstancesSafely()
-      .then((storedCharacters) => {
-        if (!isMounted || storedCharacters.length === 0) {
+    getCharacterDataSafely()
+      .then((storedCharacterData) => {
+        if (!isMounted) {
           return;
         }
 
-        setCharacterInstances(storedCharacters);
+        setCharacterData(storedCharacterData);
       })
       .catch((error: unknown) => {
         console.error('Failed to read stored characters.', error);
@@ -106,12 +115,34 @@ export const App = (): JSX.Element => {
     };
   }, []);
 
+  const handlePhysicsEnabledChange = (event: ChangeEvent<HTMLInputElement>): void => {
+    const previousSettings = appSettings;
+    const nextSettings: AppSettings = {
+      ...appSettings,
+      physicsEnabled: event.currentTarget.checked
+    };
+
+    setAppSettings(nextSettings);
+    setSettingsSaveError(null);
+    setIsSavingSettings(true);
+
+    void saveAppSettingsSafely(nextSettings)
+      .catch((error: unknown) => {
+        console.error('Failed to save physics setting.', error);
+        setAppSettings(previousSettings);
+        setSettingsSaveError('物理演算設定を保存できませんでした。');
+      })
+      .finally(() => {
+        setIsSavingSettings(false);
+      });
+  };
+
   return (
     <main className={`app-shell ${appSettings.transparentBackground ? 'app-shell--transparent' : 'app-shell--opaque'}`}>
       <section className="workspace">
         <header className="top-bar">
           <div>
-            <p className="eyebrow">Step 1 scaffold</p>
+            <p className="eyebrow">Step 6 PMX preview</p>
             <h1>MMD Desktop Mascot</h1>
           </div>
           <span className={`status-pill status-pill--${connection.status}`}>{connection.label}</span>
@@ -119,10 +150,12 @@ export const App = (): JSX.Element => {
 
         <div className="content-grid">
           <MascotStage
-            characters={characterInstances}
+            characters={characterData.instances}
+            characterProfiles={characterData.profiles}
             maxFps={appSettings.maxFps}
             renderScale={appSettings.renderScale}
             transparentBackground={appSettings.transparentBackground}
+            physicsEnabled={appSettings.physicsEnabled}
           />
 
           <aside className="inspector-panel" aria-label="Project status">
@@ -130,21 +163,40 @@ export const App = (): JSX.Element => {
             <dl className="info-list">
               <div>
                 <dt>Renderer</dt>
-                <dd>Three.js preview</dd>
+                <dd>Three.js PMX preview</dd>
               </div>
               <div>
                 <dt>Characters</dt>
-                <dd>{characterInstances.length} instance</dd>
+                <dd>{characterData.instances.length} instance</dd>
               </div>
               <div>
                 <dt>State</dt>
-                <dd>{characterInstances[0]?.state ?? 'none'}</dd>
+                <dd>{characterData.instances[0]?.state ?? 'none'}</dd>
+              </div>
+              <div>
+                <dt>Physics</dt>
+                <dd>
+                  <label className="toggle-control">
+                    <input
+                      type="checkbox"
+                      checked={appSettings.physicsEnabled}
+                      disabled={isSavingSettings}
+                      onChange={handlePhysicsEnabledChange}
+                    />
+                    <span>{appSettings.physicsEnabled ? 'ON' : 'OFF'}</span>
+                  </label>
+                </dd>
               </div>
               <div>
                 <dt>App</dt>
                 <dd>{connection.status === 'ready' ? `${connection.appInfo.appName} ${connection.appInfo.version}` : '-'}</dd>
               </div>
             </dl>
+            {settingsSaveError ? (
+              <p className="settings-error" role="status">
+                {settingsSaveError}
+              </p>
+            ) : null}
           </aside>
         </div>
       </section>

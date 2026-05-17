@@ -1,10 +1,50 @@
 import { app, ipcMain } from 'electron';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
 import type { AppInfo } from '../../core/app/appInfo';
-import type { AppSettings, CalendarReactionRule, CharacterStorageData, MotionProfile } from '../../core';
+import type {
+  AppSettings,
+  CalendarReactionRule,
+  CharacterStorageData,
+  MotionProfile,
+  RendererDiagnosticEntry
+} from '../../core';
 import type { AppStorage } from '../../core/storage/appStorage';
 
 type IpcHandlerOptions = {
   onSettingsSaved?: (settings: AppSettings) => void;
+};
+
+const rendererErrorLogFileName = 'renderer-errors.log';
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const normalizeRendererDiagnosticEntry = (entry: unknown): RendererDiagnosticEntry => {
+  const candidate = isRecord(entry) ? entry : {};
+  const level = candidate.level === 'warning' || candidate.level === 'error' ? candidate.level : 'error';
+  const source = typeof candidate.source === 'string' && candidate.source.trim() ? candidate.source : 'renderer';
+  const message = typeof candidate.message === 'string' && candidate.message.trim() ? candidate.message : 'Renderer error';
+
+  return {
+    level,
+    source,
+    message,
+    details: candidate.details,
+    occurredAt: typeof candidate.occurredAt === 'string' ? candidate.occurredAt : new Date().toISOString()
+  };
+};
+
+const appendRendererDiagnosticLog = async (entry: RendererDiagnosticEntry): Promise<void> => {
+  const logRoot = path.join(app.getPath('userData'), 'logs');
+  const logPath = path.join(logRoot, rendererErrorLogFileName);
+  const record = {
+    ...entry,
+    process: 'renderer'
+  };
+
+  await fs.mkdir(logRoot, { recursive: true });
+  await fs.appendFile(logPath, `${JSON.stringify(record)}\n`, 'utf8');
 };
 
 export const registerIpcHandlers = (storage: AppStorage, options: IpcHandlerOptions = {}): void => {
@@ -30,4 +70,11 @@ export const registerIpcHandlers = (storage: AppStorage, options: IpcHandlerOpti
   ipcMain.handle('storage:save-calendar-rules', (_event, calendarRules: CalendarReactionRule[]) =>
     storage.saveCalendarRules(calendarRules)
   );
+  ipcMain.handle('diagnostics:log-renderer-error', async (_event, entry: unknown) => {
+    try {
+      await appendRendererDiagnosticLog(normalizeRendererDiagnosticEntry(entry));
+    } catch (error: unknown) {
+      console.error('Failed to append renderer diagnostic log.', error);
+    }
+  });
 };

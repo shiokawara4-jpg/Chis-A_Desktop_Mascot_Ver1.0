@@ -57,6 +57,8 @@ const normalizeSettings = (value: unknown): AppSettings => {
     clickThroughMode: isClickThroughMode(candidate.clickThroughMode)
       ? candidate.clickThroughMode
       : defaultAppSettings.clickThroughMode,
+    physicsEnabled:
+      typeof candidate.physicsEnabled === 'boolean' ? candidate.physicsEnabled : defaultAppSettings.physicsEnabled,
     costumeChange: {
       ...defaultAppSettings.costumeChange,
       ...costumeChange
@@ -250,7 +252,10 @@ export class AppStorage {
     await Promise.all(storageKeys.map((key) => this.read(key)));
 
     const settings = await this.getSettings();
+    const characters = await this.getCharacters();
+
     await this.saveSettings(settings);
+    await this.saveCharacters(characters);
   }
 
   public async getSettings(): Promise<AppSettings> {

@@ -15,6 +15,9 @@ const desktopMascotApi: DesktopMascotApi = {
     saveMotions: (motions) => invoke('storage:save-motions', motions),
     getCalendarRules: () => invoke('storage:get-calendar-rules'),
     saveCalendarRules: (calendarRules) => invoke('storage:save-calendar-rules', calendarRules)
+  },
+  diagnostics: {
+    logRendererError: (entry) => invoke('diagnostics:log-renderer-error', entry)
   }
 };
 

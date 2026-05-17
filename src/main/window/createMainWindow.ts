@@ -47,7 +47,9 @@ export const createMainWindow = async (settings: AppSettings): Promise<BrowserWi
       preload: getPreloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      // TODO: Replace this MVP file:// access with a dedicated local asset protocol.
+      webSecurity: false
     }
   });
 

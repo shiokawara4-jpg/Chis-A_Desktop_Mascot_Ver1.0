@@ -1,21 +1,51 @@
 import * as THREE from 'three';
-import type { CharacterInstance } from '../../core';
+import type { CharacterInstance, CharacterProfile, ModelProfile, RendererDiagnosticEntry } from '../../core';
+import { serializeError } from '../diagnostics/rendererDiagnostics';
+import {
+  createModelRendererAdapter,
+  type RuntimeModelRendererAdapter
+} from '../rendererAdapters/modelRendererFactory';
+import type { MmdRendererWarning } from '../rendererAdapters/mmdRendererAdapter';
 
 export type MascotPreviewSceneSettings = {
   maxFps: number;
   renderScale: number;
   transparentBackground: boolean;
+  physicsEnabled: boolean;
+};
+
+export type MascotModelStatusKind = 'idle' | 'loading' | 'ready' | 'warning' | 'error';
+
+export type MascotModelStatus = {
+  instanceId: string;
+  characterId: string;
+  kind: MascotModelStatusKind;
+  message: string;
+  modelId?: string;
+  progress?: number;
+  details?: unknown;
 };
 
 export type MascotPreviewSceneOptions = MascotPreviewSceneSettings & {
   container: HTMLElement;
   characters: CharacterInstance[];
+  characterProfiles: CharacterProfile[];
+  onModelStatusChange?: (status: MascotModelStatus) => void;
+  onDiagnostic?: (entry: RendererDiagnosticEntry) => void;
+};
+
+type PreviewPlaceholderMesh = {
+  mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
+  edges: THREE.LineSegments<THREE.EdgesGeometry<THREE.BoxGeometry>, THREE.LineBasicMaterial>;
 };
 
 type PreviewMascotMesh = {
   group: THREE.Group;
-  mesh: THREE.Mesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
-  edges: THREE.LineSegments<THREE.EdgesGeometry<THREE.BoxGeometry>, THREE.LineBasicMaterial>;
+  placeholder?: PreviewPlaceholderMesh;
+  adapter?: RuntimeModelRendererAdapter;
+  modelProfile?: ModelProfile;
+  modelKey?: string;
+  loadToken: number;
 };
 
 const previewCubeSize = 84;
@@ -42,6 +72,27 @@ const getModelColor = (characterId: string): THREE.ColorRepresentation => {
   return new THREE.Color().setHSL(hash / 360, 0.62, 0.58);
 };
 
+const getProfileDiagnosticDetails = (profile: ModelProfile): Record<string, unknown> => ({
+  modelId: profile.modelId,
+  displayName: profile.displayName,
+  modelFormat: profile.modelFormat,
+  modelPath: profile.modelPath,
+  textureRootPath: profile.textureRootPath
+});
+
+const getModelKey = (profile: ModelProfile, physicsEnabled: boolean): string =>
+  [profile.modelFormat, profile.modelId, profile.modelPath, profile.textureRootPath ?? '', physicsEnabled].join('|');
+
+const getLoadingMessage = (profile: ModelProfile, progress?: number): string => {
+  const displayName = profile.displayName || profile.modelId;
+
+  if (progress === undefined) {
+    return `PMX読み込み中: ${displayName}`;
+  }
+
+  return `PMX読み込み中: ${displayName} (${Math.round(progress * 100)}%)`;
+};
+
 export class MascotPreviewScene {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.OrthographicCamera(0, 1, 0, 1, -1000, 1000);
@@ -53,11 +104,17 @@ export class MascotPreviewScene {
   private frameIntervalMs: number;
   private renderScale: number;
   private transparentBackground: boolean;
+  private physicsEnabled: boolean;
+  private characters: CharacterInstance[];
+  private characterProfiles: CharacterProfile[];
 
   public constructor(private readonly options: MascotPreviewSceneOptions) {
     this.frameIntervalMs = getFrameIntervalMs(options.maxFps);
     this.renderScale = options.renderScale;
     this.transparentBackground = options.transparentBackground;
+    this.physicsEnabled = options.physicsEnabled;
+    this.characters = options.characters;
+    this.characterProfiles = options.characterProfiles;
     this.renderer = new THREE.WebGLRenderer({
       alpha: true,
       antialias: true,
@@ -82,25 +139,35 @@ export class MascotPreviewScene {
     this.resizeObserver.observe(this.options.container);
 
     this.updateSettings(options);
-    this.setCharacters(options.characters);
+    this.setCharacters(options.characters, options.characterProfiles);
     this.resize();
     this.start();
   }
 
   public updateSettings(settings: MascotPreviewSceneSettings): void {
+    const previousPhysicsEnabled = this.physicsEnabled;
+
     this.frameIntervalMs = getFrameIntervalMs(settings.maxFps);
     this.renderScale = clamp(settings.renderScale || 1, 0.25, 2);
     this.transparentBackground = settings.transparentBackground;
+    this.physicsEnabled = settings.physicsEnabled;
 
     this.scene.background = null;
     this.renderer.setClearColor(0x000000, this.transparentBackground ? 0 : 0);
     this.updatePixelRatio();
+
+    if (previousPhysicsEnabled !== this.physicsEnabled) {
+      this.reloadPmxMascots();
+    }
   }
 
-  public setCharacters(characters: CharacterInstance[]): void {
+  public setCharacters(characters: CharacterInstance[], characterProfiles = this.characterProfiles): void {
+    this.characters = characters;
+    this.characterProfiles = characterProfiles;
+
     const activeIds = new Set(characters.map((character) => character.instanceId));
 
-    for (const instanceId of this.mascots.keys()) {
+    for (const instanceId of [...this.mascots.keys()]) {
       if (!activeIds.has(instanceId)) {
         this.removeMascot(instanceId);
       }
@@ -112,6 +179,7 @@ export class MascotPreviewScene {
       mascot.group.position.set(character.position.x, character.position.y, character.zIndex);
       mascot.group.scale.setScalar(character.scale);
       mascot.group.renderOrder = character.zIndex;
+      this.updateMascotModel(mascot, character);
     }
   }
 
@@ -132,6 +200,218 @@ export class MascotPreviewScene {
   }
 
   private createMascot(character: CharacterInstance): PreviewMascotMesh {
+    const group = new THREE.Group();
+    this.scene.add(group);
+
+    const mascot: PreviewMascotMesh = {
+      group,
+      loadToken: 0
+    };
+
+    this.mascots.set(character.instanceId, mascot);
+    this.ensurePlaceholder(mascot, character);
+    return mascot;
+  }
+
+  private updateMascotModel(mascot: PreviewMascotMesh, character: CharacterInstance): void {
+    const profile = this.resolveModelProfile(character);
+
+    if (!profile || profile.modelFormat !== 'pmx') {
+      this.usePlaceholderModel(mascot, character);
+      return;
+    }
+
+    const modelKey = getModelKey(profile, this.physicsEnabled);
+
+    if (mascot.modelKey === modelKey) {
+      return;
+    }
+
+    mascot.modelKey = modelKey;
+    mascot.modelProfile = profile;
+    void this.loadPmxModel(mascot, character, profile, modelKey);
+  }
+
+  private resolveModelProfile(character: CharacterInstance): ModelProfile | undefined {
+    const characterProfile = this.characterProfiles.find((profile) => profile.characterId === character.characterId);
+
+    if (!characterProfile) {
+      return undefined;
+    }
+
+    const costume =
+      characterProfile.costumes.find((candidate) => candidate.costumeId === character.currentCostumeId) ??
+      characterProfile.costumes.find((candidate) => candidate.costumeId === characterProfile.defaultCostumeId) ??
+      characterProfile.costumes[0];
+    const modelId = costume?.modelId;
+
+    if (modelId) {
+      return characterProfile.modelProfiles.find((profile) => profile.modelId === modelId);
+    }
+
+    return characterProfile.modelProfiles[0];
+  }
+
+  private async loadPmxModel(
+    mascot: PreviewMascotMesh,
+    character: CharacterInstance,
+    profile: ModelProfile,
+    modelKey: string
+  ): Promise<void> {
+    const loadToken = ++mascot.loadToken;
+    const emitLoading = (progress?: number): void => {
+      this.emitModelStatus({
+        instanceId: character.instanceId,
+        characterId: character.characterId,
+        kind: 'loading',
+        modelId: profile.modelId,
+        message: getLoadingMessage(profile, progress),
+        progress
+      });
+    };
+
+    mascot.adapter?.dispose();
+    mascot.adapter = undefined;
+    this.ensurePlaceholder(mascot, character);
+    emitLoading();
+
+    let adapter: RuntimeModelRendererAdapter | undefined;
+
+    try {
+      adapter = createModelRendererAdapter('pmx', {
+        modelRoot: mascot.group,
+        physicsEnabled: this.physicsEnabled,
+        onProgress: (progress) => {
+          if (mascot.loadToken === loadToken && mascot.modelKey === modelKey) {
+            emitLoading(progress.progress);
+          }
+        },
+        onWarning: (warning) => {
+          if (mascot.loadToken === loadToken && mascot.modelKey === modelKey) {
+            this.handlePmxWarning(character, profile, warning);
+          }
+        }
+      });
+
+      mascot.adapter = adapter;
+      await adapter.loadModel(profile);
+
+      if (mascot.loadToken !== loadToken || mascot.modelKey !== modelKey) {
+        adapter.dispose();
+        return;
+      }
+
+      this.removePlaceholder(mascot);
+
+      if ((adapter.getWarnings?.() ?? []).length > 0) {
+        return;
+      }
+
+      this.emitModelStatus({
+        instanceId: character.instanceId,
+        characterId: character.characterId,
+        kind: 'ready',
+        modelId: profile.modelId,
+        message: `PMX読み込み完了: ${profile.displayName || profile.modelId}`
+      });
+    } catch (error: unknown) {
+      if (mascot.loadToken !== loadToken || mascot.modelKey !== modelKey) {
+        adapter?.dispose();
+        return;
+      }
+
+      adapter?.dispose();
+      mascot.adapter = undefined;
+      this.ensurePlaceholder(mascot, character);
+
+      const message = `PMXモデルを読み込めませんでした。modelPathとファイル権限を確認してください: ${
+        profile.displayName || profile.modelId
+      }`;
+      const details = {
+        instanceId: character.instanceId,
+        characterId: character.characterId,
+        model: getProfileDiagnosticDetails(profile),
+        error: serializeError(error)
+      };
+
+      this.emitModelStatus({
+        instanceId: character.instanceId,
+        characterId: character.characterId,
+        kind: 'error',
+        modelId: profile.modelId,
+        message,
+        details
+      });
+      this.emitDiagnostic({
+        level: 'error',
+        source: 'mmd-renderer',
+        message,
+        details
+      });
+    }
+  }
+
+  private handlePmxWarning(
+    character: CharacterInstance,
+    profile: ModelProfile,
+    warning: MmdRendererWarning
+  ): void {
+    const details = {
+      instanceId: character.instanceId,
+      characterId: character.characterId,
+      model: getProfileDiagnosticDetails(profile),
+      warning: warning.details
+    };
+
+    this.emitModelStatus({
+      instanceId: character.instanceId,
+      characterId: character.characterId,
+      kind: 'warning',
+      modelId: profile.modelId,
+      message: warning.message,
+      details
+    });
+    this.emitDiagnostic({
+      level: 'warning',
+      source: 'mmd-renderer',
+      message: warning.message,
+      details
+    });
+  }
+
+  private usePlaceholderModel(mascot: PreviewMascotMesh, character: CharacterInstance): void {
+    mascot.loadToken += 1;
+    mascot.modelKey = undefined;
+    mascot.modelProfile = undefined;
+    mascot.adapter?.dispose();
+    mascot.adapter = undefined;
+    this.ensurePlaceholder(mascot, character);
+    this.emitModelStatus({
+      instanceId: character.instanceId,
+      characterId: character.characterId,
+      kind: 'idle',
+      message: 'Placeholder model'
+    });
+  }
+
+  private reloadPmxMascots(): void {
+    for (const character of this.characters) {
+      const mascot = this.mascots.get(character.instanceId);
+
+      if (!mascot || mascot.modelProfile?.modelFormat !== 'pmx') {
+        continue;
+      }
+
+      mascot.modelKey = undefined;
+      this.updateMascotModel(mascot, character);
+    }
+  }
+
+  private ensurePlaceholder(mascot: PreviewMascotMesh, character: CharacterInstance): void {
+    if (mascot.placeholder) {
+      return;
+    }
+
     const geometry = new THREE.BoxGeometry(previewCubeSize, previewCubeSize, previewCubeSize);
     const material = new THREE.MeshStandardMaterial({
       color: getModelColor(character.characterId),
@@ -143,16 +423,25 @@ export class MascotPreviewScene {
       new THREE.EdgesGeometry(geometry),
       new THREE.LineBasicMaterial({ color: 0x223041 })
     );
-    const group = new THREE.Group();
 
     mesh.position.set(0, -previewCubeSize * 0.5, 0);
     edges.position.copy(mesh.position);
-    group.add(mesh, edges);
-    this.scene.add(group);
+    mascot.group.add(mesh, edges);
+    mascot.placeholder = { mesh, edges };
+  }
 
-    const mascot = { group, mesh, edges };
-    this.mascots.set(character.instanceId, mascot);
-    return mascot;
+  private removePlaceholder(mascot: PreviewMascotMesh): void {
+    if (!mascot.placeholder) {
+      return;
+    }
+
+    const { mesh, edges } = mascot.placeholder;
+    mascot.group.remove(mesh, edges);
+    mesh.geometry.dispose();
+    mesh.material.dispose();
+    edges.geometry.dispose();
+    edges.material.dispose();
+    mascot.placeholder = undefined;
   }
 
   private removeMascot(instanceId: string): void {
@@ -162,12 +451,17 @@ export class MascotPreviewScene {
       return;
     }
 
+    mascot.loadToken += 1;
+    mascot.adapter?.dispose();
+    this.removePlaceholder(mascot);
     this.scene.remove(mascot.group);
-    mascot.mesh.geometry.dispose();
-    mascot.mesh.material.dispose();
-    mascot.edges.geometry.dispose();
-    mascot.edges.material.dispose();
     this.mascots.delete(instanceId);
+    this.emitModelStatus({
+      instanceId,
+      characterId: '',
+      kind: 'idle',
+      message: 'Removed'
+    });
   }
 
   private resize(): void {
@@ -196,20 +490,33 @@ export class MascotPreviewScene {
         return;
       }
 
+      const deltaSeconds = this.lastFrameTime > 0 ? (time - this.lastFrameTime) / 1000 : this.frameIntervalMs / 1000;
       this.lastFrameTime = time;
-      this.render(time);
+      this.render(time, deltaSeconds);
     };
 
     this.animationFrameId = window.requestAnimationFrame(animate);
   }
 
-  private render(time: number): void {
+  private render(time: number, deltaSeconds: number): void {
     for (const mascot of this.mascots.values()) {
-      mascot.mesh.rotation.x = time * 0.00035;
-      mascot.mesh.rotation.y = time * 0.0006;
-      mascot.edges.rotation.copy(mascot.mesh.rotation);
+      if (mascot.placeholder) {
+        mascot.placeholder.mesh.rotation.x = time * 0.00035;
+        mascot.placeholder.mesh.rotation.y = time * 0.0006;
+        mascot.placeholder.edges.rotation.copy(mascot.placeholder.mesh.rotation);
+      }
+
+      mascot.adapter?.update?.(deltaSeconds);
     }
 
     this.renderer.render(this.scene, this.camera);
+  }
+
+  private emitModelStatus(status: MascotModelStatus): void {
+    this.options.onModelStatusChange?.(status);
+  }
+
+  private emitDiagnostic(entry: RendererDiagnosticEntry): void {
+    this.options.onDiagnostic?.(entry);
   }
 }

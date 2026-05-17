@@ -1,4 +1,10 @@
-export type { DesktopMascotApi, DesktopMascotStorageApi } from './app/desktopMascotApi';
+export type {
+  DesktopMascotApi,
+  DesktopMascotDiagnosticsApi,
+  DesktopMascotStorageApi,
+  RendererDiagnosticEntry,
+  RendererDiagnosticLevel
+} from './app/desktopMascotApi';
 export type { AppInfo } from './app/appInfo';
 export type {
   CharacterInstance,
